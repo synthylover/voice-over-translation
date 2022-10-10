@@ -118,56 +118,78 @@ function getUUID(isLower) {
     return isLower ? uuid : uuid.toUpperCase();
 }
 
-function requestVideoTranslation (url, unknown1, callback) {
-	var deviceId = getUUID(true);
+async function requestVideoTranslation(url, unknown1, callback) {
+    var response;
+    var responseBody;
+
+    var deviceId = getUUID(true);
     var body = yandexRequests.encodeRequest(url, deviceId, unknown1);
 
-	var utf8Encoder = new TextEncoder("utf-8");
-	window.crypto.subtle.importKey('raw', utf8Encoder.encode(yandexHmacKey), { name: 'HMAC', hash: {name: 'SHA-256'}}, false, ['sign', 'verify']).then(key => {
-		window.crypto.subtle.sign('HMAC', key, body).then(signature => {
-			GM_xmlhttpRequest({url: "https://api.browser.yandex.ru/video-translation/translate", method: "POST", headers: {
-				"Accept": "application/x-protobuf",
-				"Accept-Language": "en",
-				"Content-Type": "application/x-protobuf",
-				"User-Agent": yandexUserAgent,
-				"Pragma": "no-cache",
-				"Cache-Control": "no-cache",
-				"Sec-Fetch-Mode": "no-cors",
-				"sec-ch-ua": null,
-				"sec-ch-ua-mobile": null,
-				"sec-ch-ua-platform": null,
-				"Vtrans-Signature": Array.prototype.map.call(new Uint8Array(signature), x => x.toString(16).padStart(2, '0')).join(''),
-				"Sec-Vtrans-Token": getUUID(false)
-			}, data: String.fromCharCode.apply(null, body), responseType: "arraybuffer", onload: (http) => {
-				callback((http.status === 200), http.response);
-			}, onerror: (error) => {
-				callback(false);
-			}});
-		});
-	});
+    try {
+        var utf8Encoder = new TextEncoder("utf-8");
+        var key = await window.crypto.subtle.importKey('raw', utf8Encoder.encode(yandexHmacKey), { name: 'HMAC', hash: {name: 'SHA-256'}}, false, ['sign', 'verify']);
+        var signature = await window.crypto.subtle.sign('HMAC', key, body);
+        response = await fetch('https://cors.yandexproxy.workers.dev/video-translation/translate', {
+            method: 'POST',
+            mode: 'cors',
+            cache: 'no-cache',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            redirect: 'follow',
+            referrerPolicy: 'no-referrer',
+            body: JSON.stringify({
+                headers: {
+                    "Accept": "application/x-protobuf",
+                    "Accept-Language": "en",
+                    "Content-Type": "application/x-protobuf",
+                    "User-Agent": yandexUserAgent,
+                    "Pragma": "no-cache",
+                    "Cache-Control": "no-cache",
+                    "Sec-Fetch-Mode": "no-cors",
+                    "Vtrans-Signature": Array.prototype.map.call(new Uint8Array(signature), x => x.toString(16).padStart(2, '0')).join(''),
+                    "Sec-Vtrans-Token": getUUID(false)
+                },
+                body: String.fromCharCode.apply(null, body)
+            })
+        });
+        responseBody = await response.arrayBuffer();
+    } catch(exception) {
+        response = {status: -1};
+        responseBody = exception;
+    }
+
+    callback(response.status == 200, responseBody);
 }
 
-function translateVideo(url, unknown1, callback) {
-	requestVideoTranslation(url, unknown1, function (success, response) {
-		if (!success) {
-			callback(false, "Не удалось запросить перевод видео");
-			return;
-		}
+// stupid fix (button click fired 2 times)
+var translationPanding = false;
 
-		const translateResponse = yandexRequests.decodeResponse(response);
-		switch (translateResponse.status) {
-			case 0:
-				callback(false, "Невозможно перевести видео. Зайдите позже, нейронная сеть скоро научится");
-				return;
-			case 1:
-				var hasUrl = void 0 !== translateResponse.url && null !== translateResponse.url;
-				callback(hasUrl, hasUrl ? translateResponse.url : "Не получена ссылка на аудио");
-				return;
-			case 2:
-				callback(false, "Перевод займет около минуты");
-				return;
-		}
-	});
+function translateVideo(url, unknown1, callback) {
+    if (translationPanding) return;
+    translationPanding = true;
+
+    requestVideoTranslation(url, unknown1, function (success, response) {
+        translationPanding = false;
+        if (!success) {
+            callback(false, "Не удалось запросить перевод видео");
+            return;
+        }
+
+        const translateResponse = yandexRequests.decodeResponse(response);
+        switch (translateResponse.status) {
+            case 0:
+                callback(false, "Невозможно перевести видео. Зайдите позже, нейронная сеть скоро научится");
+                return;
+            case 1:
+                var hasUrl = void 0 !== translateResponse.url && null !== translateResponse.url;
+                callback(hasUrl, hasUrl ? translateResponse.url : "Не получена ссылка на аудио");
+                return;
+            case 2:
+                callback(false, "Перевод займет около минуты");
+                return;
+        }
+    });
 }
 
 const deleteAudioSrc = () => {
@@ -464,7 +486,7 @@ $("body").on("yt-page-data-updated", async function () {
           translateYTFunc(VIDEO_ID);
         }, 70000)
       }
-      throw urlOrError;
+      return;
     }
 
     audio.src = urlOrError;
