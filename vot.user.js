@@ -21,6 +21,8 @@
 // @connect          api.browser.yandex.ru
 // ==/UserScript==
 
+const workerHost = "cors.yandexproxy.workers.dev";
+
 const yandexHmacKey = "gnnde87s24kcuMH8rbWhLyfeuEKDkGGm";
 const yandexUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 15_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 CriOS/104.0.5112.114 YaBrowser/22.9.4.633.10 SA/3 Mobile/15E148 Safari/604.1";
 const USOV4 = [ // Список расширений, последние версии которых не поддерживают Greasemonkey API V3
@@ -129,7 +131,7 @@ async function requestVideoTranslation(url, unknown1, callback) {
         var utf8Encoder = new TextEncoder("utf-8");
         var key = await window.crypto.subtle.importKey('raw', utf8Encoder.encode(yandexHmacKey), { name: 'HMAC', hash: {name: 'SHA-256'}}, false, ['sign', 'verify']);
         var signature = await window.crypto.subtle.sign('HMAC', key, body);
-        response = await fetch('https://cors.yandexproxy.workers.dev/video-translation/translate', {
+        response = await fetch(`https://${workerHost}/video-translation/translate`, {
             method: 'POST',
             mode: 'cors',
             cache: 'no-cache',
